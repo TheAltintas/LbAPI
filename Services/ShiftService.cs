@@ -8,6 +8,7 @@ namespace LittleBeaconAPI.Services
     {
         List<Shift> GetUpcomingShifts(int userId);
         List<Shift> GetAllShifts();
+        List<Shift> GetShiftsByUserId(int userId);
         Shift? GetShiftById(int id);
         void AddShift(Shift shift);
         void UpdateShift(Shift shift);
@@ -26,8 +27,8 @@ namespace LittleBeaconAPI.Services
         public List<Shift> GetUpcomingShifts(int userId)
         {
             return _context.Shifts
-                .Where(s => s.UserId == userId)
-                .OrderBy(s => s.Date)
+                .Where(s => s.UserId == userId && !s.IsCompleted)
+                .OrderBy(s => s.ActualDate)
                 .AsNoTracking()
                 .ToList();
         }
@@ -35,6 +36,16 @@ namespace LittleBeaconAPI.Services
         public List<Shift> GetAllShifts()
         {
             return _context.Shifts
+                .OrderBy(s => s.ActualDate)
+                .AsNoTracking()
+                .ToList();
+        }
+
+        public List<Shift> GetShiftsByUserId(int userId)
+        {
+            return _context.Shifts
+                .Where(s => s.UserId == userId)
+                .OrderBy(s => s.ActualDate)
                 .AsNoTracking()
                 .ToList();
         }
@@ -63,12 +74,17 @@ namespace LittleBeaconAPI.Services
             if (existing != null)
             {
                 existing.Date = shift.Date;
+                existing.ActualDate = shift.ActualDate;
                 existing.Time = shift.Time;
                 existing.Location = shift.Location;
+                existing.Tag = shift.Tag;
+                existing.UserId = shift.UserId;
                 existing.Status = string.IsNullOrWhiteSpace(shift.Status) ? existing.Status : shift.Status;
                 existing.IsCompleted = shift.IsCompleted;
                 existing.Hours = shift.Hours;
                 existing.Notes = shift.Notes;
+                existing.BorderColor = shift.BorderColor;
+                existing.WeekOffset = shift.WeekOffset;
                 existing.SickReportId = shift.SickReportId;
 
                 _context.SaveChanges();

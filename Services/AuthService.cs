@@ -6,6 +6,7 @@ namespace LittleBeaconAPI.Services
     public interface IAuthService
     {
         LoginResponse Authenticate(string username, string password);
+        LoginResponse Register(string username, string password);
         bool ValidateToken(string token);
         string? GetUsernameFromToken(string token);
     }
@@ -13,7 +14,7 @@ namespace LittleBeaconAPI.Services
     public class AuthService : IAuthService
     {
         private readonly AppDbContext _context;
-        private readonly Dictionary<string, string> _tokens = new();
+        private static readonly Dictionary<string, string> _tokens = new();
 
         public AuthService(AppDbContext context)
         {
@@ -50,6 +51,41 @@ namespace LittleBeaconAPI.Services
             {
                 Success = true,
                 Message = "Login successful",
+                Token = token,
+                Username = user.Username
+            };
+        }
+
+        public LoginResponse Register(string username, string password)
+        {
+            // Check if username already exists
+            if (_context.Users.Any(u => u.Username == username))
+            {
+                return new LoginResponse
+                {
+                    Success = false,
+                    Message = "Brugernavn er allerede i brug"
+                };
+            }
+
+            var user = new User
+            {
+                Username = username,
+                Password = password,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.Users.Add(user);
+            _context.SaveChanges();
+
+            // Generate token and store in memory (simple approach)
+            var token = Guid.NewGuid().ToString();
+            _tokens[token] = user.Username;
+
+            return new LoginResponse
+            {
+                Success = true,
+                Message = "Registration successful",
                 Token = token,
                 Username = user.Username
             };

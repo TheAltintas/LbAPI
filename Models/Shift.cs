@@ -4,14 +4,18 @@ namespace LittleBeaconAPI.Models
     {
         public int Id { get; set; }
         public string Date { get; set; } = string.Empty;
+        public DateTime ActualDate { get; set; }
         public string Time { get; set; } = string.Empty;
         public string Location { get; set; } = string.Empty;
+        public string? Tag { get; set; }
         public int UserId { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public string Status { get; set; } = "Vagt";
         public bool IsCompleted { get; set; }
-        public double Hours { get; set; } = 8.0;
+        public int Hours { get; set; } = 8;
+        public string? Status { get; set; } = "Vagt";
         public string? Notes { get; set; }
+        public string? BorderColor { get; set; }
+        public int WeekOffset { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public int? SickReportId { get; set; }
 
         public User? User { get; set; }
