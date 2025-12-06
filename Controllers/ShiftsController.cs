@@ -68,13 +68,11 @@ namespace LittleBeaconAPI.Controllers
             //     return Unauthorized(new { success = false, message = "Admin access required" });
             // }
 
-            // Validate model state
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            // Validate required fields
             if (string.IsNullOrWhiteSpace(shift.Date))
             {
                 return BadRequest(new { success = false, message = "Date is required" });
@@ -95,26 +93,34 @@ namespace LittleBeaconAPI.Controllers
                 return BadRequest(new { success = false, message = "Valid UserId is required" });
             }
 
-            // Verify user exists
             var userExists = await _db.Users.AnyAsync(u => u.Id == shift.UserId);
             if (!userExists)
             {
                 return BadRequest(new { success = false, message = "User not found" });
             }
 
-            _shiftService.AddShift(shift);
-            return CreatedAtAction(nameof(GetShift), new { id = shift.Id }, new { success = true, data = shift, message = "Shift created successfully" });
+            if (string.IsNullOrWhiteSpace(shift.Status))
+            {
+                shift.Status = "Vagt";
+            }
+
+            await _db.Shifts.AddAsync(shift);
+            await _db.SaveChangesAsync();
+
+            // reload to return the persisted entity (with Id)
+            var persisted = await _db.Shifts.AsNoTracking().FirstOrDefaultAsync(s => s.Id == shift.Id);
+
+            return CreatedAtAction(nameof(GetShift), new { id = shift.Id }, new { success = true, data = persisted, message = "Shift created successfully" });
         }
 
         [HttpPut("{id}")]
-        public ActionResult UpdateShift(int id, [FromBody] Shift shift)
+        public async Task<ActionResult> UpdateShift(int id, [FromBody] Shift shift)
         {
             if (id != shift.Id)
             {
                 return BadRequest(new { success = false, message = "ID mismatch" });
             }
 
-            // Validate required fields
             if (string.IsNullOrWhiteSpace(shift.Date))
             {
                 return BadRequest(new { success = false, message = "Date is required" });
@@ -130,12 +136,32 @@ namespace LittleBeaconAPI.Controllers
                 return BadRequest(new { success = false, message = "Location is required" });
             }
 
-            _shiftService.UpdateShift(shift);
-            return Ok(new { success = true, message = "Shift updated successfully" });
+            var existing = await _db.Shifts.FirstOrDefaultAsync(s => s.Id == id);
+            if (existing == null)
+            {
+                return NotFound(new { success = false, message = "Shift not found" });
+            }
+
+            existing.Date = shift.Date;
+            existing.ActualDate = shift.ActualDate;
+            existing.Time = shift.Time;
+            existing.Location = shift.Location;
+            existing.Tag = shift.Tag;
+            existing.UserId = shift.UserId;
+            existing.Status = string.IsNullOrWhiteSpace(shift.Status) ? existing.Status : shift.Status;
+            existing.IsCompleted = shift.IsCompleted;
+            existing.Hours = shift.Hours;
+            existing.Notes = shift.Notes;
+            existing.BorderColor = shift.BorderColor;
+            existing.WeekOffset = shift.WeekOffset;
+            existing.SickReportId = shift.SickReportId;
+
+            await _db.SaveChangesAsync();
+            return Ok(new { success = true, data = existing, message = "Shift updated successfully" });
         }
 
         [HttpDelete("{id}")]
-        public ActionResult DeleteShift(int id, [FromHeader(Name = "Authorization")] string? authHeader)
+        public async Task<ActionResult> DeleteShift(int id, [FromHeader(Name = "Authorization")] string? authHeader)
         {
             // Optional admin check - comment out for testing
             // if (!IsAdmin(authHeader))
@@ -143,8 +169,16 @@ namespace LittleBeaconAPI.Controllers
             //     return Unauthorized(new { success = false, message = "Admin access required" });
             // }
 
-            _shiftService.DeleteShift(id);
-            return Ok(new { success = true, message = "Shift deleted successfully" });
+            var shift = await _db.Shifts.FirstOrDefaultAsync(s => s.Id == id);
+            if (shift == null)
+            {
+                return NotFound(new { success = false, message = "Shift not found" });
+            }
+
+            _db.Shifts.Remove(shift);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { success = true, data = new { id = id }, message = "Shift deleted successfully" });
         }
 
         private bool IsAdmin(string? authHeader)
