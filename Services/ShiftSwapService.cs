@@ -144,7 +144,8 @@ namespace LittleBeaconAPI.Services
                 RequestedAt = source.RequestedAt,
                 ResolvedAt = source.ResolvedAt,
                 ResolvedByUserId = source.ResolvedByUserId,
-                ResolutionNote = source.ResolutionNote
+                ResolutionNote = source.ResolutionNote,
+                IsHandover = source.IsHandover
             };
         }
     }

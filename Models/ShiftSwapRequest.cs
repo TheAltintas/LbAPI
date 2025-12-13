@@ -16,7 +16,7 @@ namespace LittleBeaconAPI.Models
         public int RequestedByUserId { get; set; }
         public int RequestedByShiftId { get; set; }
         public int RequestedWithUserId { get; set; }
-        public int RequestedWithShiftId { get; set; }
+        public int? RequestedWithShiftId { get; set; }
         public string? Message { get; set; }
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public ShiftSwapStatus Status { get; set; } = ShiftSwapStatus.Pending;
@@ -24,6 +24,7 @@ namespace LittleBeaconAPI.Models
         public DateTime? ResolvedAt { get; set; }
         public int? ResolvedByUserId { get; set; }
         public string? ResolutionNote { get; set; }
+        public bool IsHandover { get; set; } = false;
 
         [JsonIgnore]
         public bool IsClosed => Status == ShiftSwapStatus.Approved || Status == ShiftSwapStatus.Declined || Status == ShiftSwapStatus.Cancelled;
@@ -37,12 +38,13 @@ namespace LittleBeaconAPI.Models
         public int RequestedByUserId { get; set; }
         public int RequestedByShiftId { get; set; }
         public int RequestedWithUserId { get; set; }
-        public int RequestedWithShiftId { get; set; }
+        public int? RequestedWithShiftId { get; set; }
         public string? Message { get; set; }
         public DateTime RequestedAt { get; set; }
         public DateTime? ResolvedAt { get; set; }
         public int? ResolvedByUserId { get; set; }
         public string? ResolutionNote { get; set; }
+        public bool IsHandover { get; set; } = false;
         public ShiftSummary? RequestedByShift { get; set; }
         public ShiftSummary? RequestedWithShift { get; set; }
     }

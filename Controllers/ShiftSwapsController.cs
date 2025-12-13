@@ -31,8 +31,9 @@ namespace LittleBeaconAPI.Controllers
             public int RequestedByUserId { get; set; }
             public int RequestedByShiftId { get; set; }
             public int RequestedWithUserId { get; set; }
-            public int RequestedWithShiftId { get; set; }
+            public int? RequestedWithShiftId { get; set; }
             public string? Message { get; set; }
+            public bool IsHandover { get; set; } = false;
         }
 
         public class DecideSwapRequestDto
@@ -98,14 +99,9 @@ namespace LittleBeaconAPI.Controllers
                 return BadRequest(new { success = false, message = "User IDs must be greater than zero" });
             }
 
-            if (dto.RequestedByShiftId <= 0 || dto.RequestedWithShiftId <= 0)
+            if (dto.RequestedByShiftId <= 0)
             {
-                return BadRequest(new { success = false, message = "Shift IDs must be greater than zero" });
-            }
-
-            if (dto.RequestedByShiftId == dto.RequestedWithShiftId)
-            {
-                return BadRequest(new { success = false, message = "Cannot swap the same shift" });
+                return BadRequest(new { success = false, message = "Requester shift id is required" });
             }
 
             var fromShift = await _db.Shifts.AsNoTracking().FirstOrDefaultAsync(s => s.Id == dto.RequestedByShiftId);
@@ -119,26 +115,62 @@ namespace LittleBeaconAPI.Controllers
                 return BadRequest(new { success = false, message = "Shift does not belong to requesting user" });
             }
 
-            var targetShift = await _db.Shifts.AsNoTracking().FirstOrDefaultAsync(s => s.Id == dto.RequestedWithShiftId);
-            if (targetShift == null)
+            var targetUser = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == dto.RequestedWithUserId);
+            if (targetUser == null)
             {
-                return BadRequest(new { success = false, message = "Target shift was not found" });
+                return BadRequest(new { success = false, message = "Target user was not found" });
             }
 
-            if (targetShift.UserId != dto.RequestedWithUserId)
+            if (dto.RequestedWithUserId == dto.RequestedByUserId)
             {
-                return BadRequest(new { success = false, message = "Target shift does not belong to selected colleague" });
+                return BadRequest(new { success = false, message = "Du kan ikke bytte eller overdrage til dig selv" });
             }
 
-            var existingPending = _swapService
-                .GetAll()
-                .Any(r => r.Status == ShiftSwapStatus.Pending &&
-                          ((r.RequestedByShiftId == dto.RequestedByShiftId && r.RequestedWithShiftId == dto.RequestedWithShiftId) ||
-                           (r.RequestedByShiftId == dto.RequestedWithShiftId && r.RequestedWithShiftId == dto.RequestedByShiftId)));
-
-            if (existingPending)
+            if (dto.IsHandover)
             {
-                return Conflict(new { success = false, message = "There is already a pending swap request for these shifts" });
+                var existingHandover = _swapService
+                    .GetAll()
+                    .Any(r => r.Status == ShiftSwapStatus.Pending && r.RequestedByShiftId == dto.RequestedByShiftId);
+
+                if (existingHandover)
+                {
+                    return Conflict(new { success = false, message = "Der findes allerede en afventende anmodning for denne vagt" });
+                }
+            }
+            else
+            {
+                if (dto.RequestedWithShiftId == null || dto.RequestedWithShiftId <= 0)
+                {
+                    return BadRequest(new { success = false, message = "Target shift id is required for bytte" });
+                }
+
+                if (dto.RequestedByShiftId == dto.RequestedWithShiftId)
+                {
+                    return BadRequest(new { success = false, message = "Cannot swap the same shift" });
+                }
+
+                var targetShift = await _db.Shifts.AsNoTracking().FirstOrDefaultAsync(s => s.Id == dto.RequestedWithShiftId);
+                if (targetShift == null)
+                {
+                    return BadRequest(new { success = false, message = "Target shift was not found" });
+                }
+
+                if (targetShift.UserId != dto.RequestedWithUserId)
+                {
+                    return BadRequest(new { success = false, message = "Target shift does not belong to selected colleague" });
+                }
+
+                var existingPending = _swapService
+                    .GetAll()
+                    .Any(r => r.Status == ShiftSwapStatus.Pending &&
+                              !r.IsHandover &&
+                              ((r.RequestedByShiftId == dto.RequestedByShiftId && r.RequestedWithShiftId == dto.RequestedWithShiftId) ||
+                               (r.RequestedByShiftId == dto.RequestedWithShiftId && r.RequestedWithShiftId == dto.RequestedByShiftId)));
+
+                if (existingPending)
+                {
+                    return Conflict(new { success = false, message = "Der er allerede en afventende bytteanmodning for disse vagter" });
+                }
             }
 
             var request = new ShiftSwapRequest
@@ -147,7 +179,8 @@ namespace LittleBeaconAPI.Controllers
                 RequestedByShiftId = dto.RequestedByShiftId,
                 RequestedWithUserId = dto.RequestedWithUserId,
                 RequestedWithShiftId = dto.RequestedWithShiftId,
-                Message = dto.Message
+                Message = dto.Message,
+                IsHandover = dto.IsHandover
             };
 
             var created = _swapService.Create(request);
@@ -174,6 +207,19 @@ namespace LittleBeaconAPI.Controllers
             if (updated == null)
             {
                 return NotFound(new { success = false, message = "Request not found" });
+            }
+
+            // When a swap is approved, swap the shift owners in the database so the change is visible under "Vis vagtplan".
+            if (updated.Status == ShiftSwapStatus.Approved)
+            {
+                var applied = updated.IsHandover
+                    ? await TransferShiftOwnerAsync(updated.RequestedByShiftId, updated.RequestedWithUserId)
+                    : await SwapShiftOwnersAsync(updated.RequestedByShiftId, updated.RequestedWithShiftId ?? 0);
+
+                if (!applied)
+                {
+                    return StatusCode(500, new { success = false, message = "Kunne ikke opdatere vagterne" });
+                }
             }
 
             var payload = await BuildSummariesAsync(new[] { updated });
@@ -228,6 +274,8 @@ namespace LittleBeaconAPI.Controllers
 
             var shiftIds = list
                 .SelectMany(r => new[] { r.RequestedByShiftId, r.RequestedWithShiftId })
+                .Where(id => id.HasValue && id.Value > 0)
+                .Select(id => id!.Value)
                 .Distinct()
                 .ToList();
 
@@ -258,9 +306,49 @@ namespace LittleBeaconAPI.Controllers
                 ResolvedAt = r.ResolvedAt,
                 ResolvedByUserId = r.ResolvedByUserId,
                 ResolutionNote = r.ResolutionNote,
+                IsHandover = r.IsHandover,
                 RequestedByShift = shiftLookup.TryGetValue(r.RequestedByShiftId, out var fromShift) ? fromShift : null,
-                RequestedWithShift = shiftLookup.TryGetValue(r.RequestedWithShiftId, out var toShift) ? toShift : null
+                RequestedWithShift = r.RequestedWithShiftId.HasValue && shiftLookup.TryGetValue(r.RequestedWithShiftId.Value, out var toShift) ? toShift : null
             }).ToList();
+        }
+
+        private async Task<bool> SwapShiftOwnersAsync(int shiftIdA, int shiftIdB)
+        {
+            var shiftIds = new[] { shiftIdA, shiftIdB };
+            var shifts = await _db.Shifts.Where(s => shiftIds.Contains(s.Id)).ToListAsync();
+            if (shifts.Count != 2)
+            {
+                return false;
+            }
+
+            var first = shifts.First(s => s.Id == shiftIdA);
+            var second = shifts.First(s => s.Id == shiftIdB);
+
+            var tempUserId = first.UserId;
+            first.UserId = second.UserId;
+            second.UserId = tempUserId;
+
+            await _db.SaveChangesAsync();
+            return true;
+        }
+
+        private async Task<bool> TransferShiftOwnerAsync(int shiftId, int targetUserId)
+        {
+            var shift = await _db.Shifts.FirstOrDefaultAsync(s => s.Id == shiftId);
+            if (shift == null)
+            {
+                return false;
+            }
+
+            var targetUserExists = await _db.Users.AnyAsync(u => u.Id == targetUserId);
+            if (!targetUserExists)
+            {
+                return false;
+            }
+
+            shift.UserId = targetUserId;
+            await _db.SaveChangesAsync();
+            return true;
         }
     }
 }
