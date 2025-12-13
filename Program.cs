@@ -18,6 +18,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Register custom services
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IShiftService, ShiftService>();
+builder.Services.AddSingleton<IShiftSwapService, ShiftSwapService>();
 
 // Add CORS policy for Angular app
 builder.Services.AddCors(options =>
