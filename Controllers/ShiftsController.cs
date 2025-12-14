@@ -104,6 +104,8 @@ namespace LittleBeaconAPI.Controllers
                 shift.Status = "Vagt";
             }
 
+            NormalizeShiftDates(shift);
+
             await _db.Shifts.AddAsync(shift);
             await _db.SaveChangesAsync();
 
@@ -156,6 +158,8 @@ namespace LittleBeaconAPI.Controllers
             existing.WeekOffset = shift.WeekOffset;
             existing.SickReportId = shift.SickReportId;
 
+            NormalizeShiftDates(existing);
+
             await _db.SaveChangesAsync();
             return Ok(new { success = true, data = existing, message = "Shift updated successfully" });
         }
@@ -192,6 +196,32 @@ namespace LittleBeaconAPI.Controllers
             var username = _authService.GetUsernameFromToken(token);
 
             return username != null && username.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static DateTime NormalizeToDateOnlyUtc(DateTime value, string? fallbackDate)
+        {
+            if (value == default || value.Year < 2000)
+            {
+                if (!string.IsNullOrWhiteSpace(fallbackDate) && DateTime.TryParse(fallbackDate, out var parsed))
+                {
+                    value = parsed;
+                }
+            }
+
+            var dateOnly = value.Date;
+            return DateTime.SpecifyKind(dateOnly, DateTimeKind.Utc);
+        }
+
+        private static string ToIsoDateString(DateTime value)
+        {
+            return value.ToString("yyyy-MM-dd");
+        }
+
+        private static void NormalizeShiftDates(Shift shift)
+        {
+            var normalizedDate = NormalizeToDateOnlyUtc(shift.ActualDate, shift.Date);
+            shift.ActualDate = normalizedDate;
+            shift.Date = ToIsoDateString(normalizedDate);
         }
     }
 }

@@ -26,6 +26,7 @@ namespace LittleBeaconAPI.Services
 
         public List<Shift> GetUpcomingShifts(int userId)
         {
+            RepairInvalidDates();
             return _context.Shifts
                 .Where(s => s.UserId == userId && !s.IsCompleted)
                 .OrderBy(s => s.ActualDate)
@@ -35,6 +36,7 @@ namespace LittleBeaconAPI.Services
 
         public List<Shift> GetAllShifts()
         {
+            RepairInvalidDates();
             return _context.Shifts
                 .OrderBy(s => s.ActualDate)
                 .AsNoTracking()
@@ -43,6 +45,7 @@ namespace LittleBeaconAPI.Services
 
         public List<Shift> GetShiftsByUserId(int userId)
         {
+            RepairInvalidDates();
             return _context.Shifts
                 .Where(s => s.UserId == userId)
                 .OrderBy(s => s.ActualDate)
@@ -59,6 +62,8 @@ namespace LittleBeaconAPI.Services
 
         public void AddShift(Shift shift)
         {
+            NormalizeShiftDates(shift);
+
             if (string.IsNullOrWhiteSpace(shift.Status))
             {
                 shift.Status = "Vagt";
@@ -87,6 +92,8 @@ namespace LittleBeaconAPI.Services
                 existing.WeekOffset = shift.WeekOffset;
                 existing.SickReportId = shift.SickReportId;
 
+                NormalizeShiftDates(existing);
+
                 _context.SaveChanges();
             }
         }
@@ -101,6 +108,63 @@ namespace LittleBeaconAPI.Services
 
             _context.Shifts.Remove(shift);
             _context.SaveChanges();
+        }
+
+        private static DateTime NormalizeToDateOnlyUtc(DateTime value, string? fallbackDate)
+        {
+            // If the value is unset or a sentinel year, try fallback string
+            if (value == default || value.Year < 2000)
+            {
+                if (!string.IsNullOrWhiteSpace(fallbackDate) && DateTime.TryParse(fallbackDate, out var parsed))
+                {
+                    value = parsed;
+                }
+            }
+
+            // Keep only the date component and mark as UTC to avoid timezone shifts
+            var dateOnly = value.Date;
+            return DateTime.SpecifyKind(dateOnly, DateTimeKind.Utc);
+        }
+
+        private static string ToIsoDateString(DateTime value)
+        {
+            return value.ToString("yyyy-MM-dd");
+        }
+
+        private static void NormalizeShiftDates(Shift shift)
+        {
+            var normalizedDate = NormalizeToDateOnlyUtc(shift.ActualDate, shift.Date);
+            shift.ActualDate = normalizedDate;
+            shift.Date = ToIsoDateString(normalizedDate);
+        }
+
+        private void RepairInvalidDates()
+        {
+            var candidates = _context.Shifts
+                .Where(s => s.ActualDate == default || s.ActualDate.Year < 2000 || string.IsNullOrWhiteSpace(s.Date))
+                .ToList();
+
+            if (!candidates.Any())
+            {
+                return;
+            }
+
+            var changed = false;
+            foreach (var shift in candidates)
+            {
+                var beforeDate = shift.Date;
+                var beforeActual = shift.ActualDate;
+                NormalizeShiftDates(shift);
+                if (!Equals(beforeDate, shift.Date) || !Equals(beforeActual, shift.ActualDate))
+                {
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                _context.SaveChanges();
+            }
         }
     }
 }
